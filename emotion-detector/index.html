@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>AI Emotion Detector Pro</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --primary-color: #4c1d95;
+            --happy-color: #22c55e;
+            --angry-color: #ef4444;
+            --background-light: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --background-dark: linear-gradient(135deg, #1a1c2c 0%, #2a1b3d 100%);
+            --card-light: rgba(255, 255, 255, 0.95);
+            --card-dark: rgba(23, 25, 35, 0.95);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        body {
+            background: var(--background-light);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 2rem;
+        }
+
+        body.dark-mode {
+            background: var(--background-dark);
+        }
+
+        .container {
+            background: var(--card-light);
+            padding: 2rem;
+            border-radius: 15px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            max-width: 800px;
+            width: 100%;
+        }
+
+        .dark-mode .container {
+            background: var(--card-dark);
+            color: white;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
+        h1 {
+            color: #2d3748;
+            font-size: 2.5rem;
+        }
+
+        .dark-mode h1 {
+            color: white;
+        }
+
+        .controls {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+            justify-content: center;
+        }
+
+        button {
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 0.8rem 2rem;
+            font-size: 1.1rem;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: transform 0.2s, background 0.2s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            opacity: 0.9;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        #webcam-container {
+            margin-bottom: 1.5rem;
+            position: relative;
+            display: inline-block;
+        }
+
+        #webcam-container canvas {
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            max-width: 100%;
+        }
+
+        #label-container {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            padding: 1rem;
+            background: #f8fafc;
+            border-radius: 8px;
+            margin-bottom: 1.5rem;
+        }
+
+        .dark-mode #label-container {
+            background: #2d3748;
+        }
+
+        .prediction-bar {
+            background: #e2e8f0;
+            border-radius: 6px;
+            overflow: hidden;
+            height: 30px;
+            position: relative;
+        }
+
+        .prediction-fill {
+            height: 100%;
+            transition: width 0.3s ease;
+            display: flex;
+            align-items: center;
+            padding: 0 1rem;
+            color: white;
+            font-weight: 500;
+        }
+
+        .happy-fill {
+            background: var(--happy-color);
+        }
+
+        .angry-fill {
+            background: var(--angry-color);
+        }
+
+        .loading {
+            display: none;
+            margin: 1rem 0;
+            color: #4b5563;
+        }
+
+        .dark-mode .loading {
+            color: #e5e7eb;
+        }
+
+        .error {
+            color: #dc2626;
+            margin: 1rem 0;
+            display: none;
+        }
+
+        #history-chart {
+            margin-top: 2rem;
+            padding: 1rem;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .dark-mode #history-chart {
+            background: #2d3748;
+        }
+
+        .screenshot-preview {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 1rem;
+            border-radius: 8px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.2);
+            z-index: 1000;
+        }
+
+        .dark-mode .screenshot-preview {
+            background: #2d3748;
+        }
+
+        .dominant-emotion {
+            font-size: 1.5rem;
+            margin-top: 1rem;
+            padding: 0.5rem;
+            border-radius: 8px;
+            font-weight: bold;
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                padding: 1rem;
+            }
+
+            h1 {
+                font-size: 2rem;
+            }
+
+            .controls {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Emotion Detector </h1>
+            <button onclick="toggleDarkMode()" id="theme-toggle">🌙</button>
+        </div>
+        <div class="controls">
+            <button id="start-button" onclick="init()">Start Camera</button>
+            <button onclick="takeScreenshot()" id="screenshot-button" disabled>📸 Screenshot</button>
+            <button onclick="resetHistory()" id="reset-button" disabled>🔄 Reset History</button>
+        </div>
+        <div id="loading" class="loading">Loading model...</div>
+        <div id="error" class="error"></div>
+        <div id="webcam-container"></div>
+        <div id="label-container"></div>
+        <div class="dominant-emotion" id="dominant-emotion"></div>
+        <canvas id="history-chart"></canvas>
+    </div>
+
+    <div class="screenshot-preview" id="screenshot-preview">
+        <img id="screenshot-image" style="max-width: 100%; border-radius: 8px;">
+        <button onclick="downloadScreenshot()" style="margin-top: 1rem;">Download</button>
+        <button onclick="closeScreenshotPreview()" style="margin-top: 1rem;">Close</button>
+    </div>
+
+    <script>
+        const URL = "./model/";
+        let model, webcam, labelContainer, maxPredictions;
+        let historyChart;
+        let emotionHistory = {
+            happy: [],
+            angry: []
+        };
+
+        // Dark mode toggle
+        function toggleDarkMode() {
+            document.body.classList.toggle('dark-mode');
+            const button = document.getElementById('theme-toggle');
+            button.textContent = document.body.classList.contains('dark-mode') ? '☀️' : '🌙';
+            updateChartTheme();
+        }
+
+        // Initialize Chart
+        function initChart() {
+            const ctx = document.getElementById('history-chart').getContext('2d');
+            historyChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: 'Happy',
+                            data: [],
+                            borderColor: '#22c55e',
+                            tension: 0.4
+                        },
+                        {
+                            label: 'Angry',
+                            data: [],
+                            borderColor: '#ef4444',
+                            tension: 0.4
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100
+                        }
+                    },
+                    animation: {
+                        duration: 0
+                    }
+                }
+            });
+        }
+
+        function updateChartTheme() {
+            if (!historyChart) return;
+            
+            const isDark = document.body.classList.contains('dark-mode');
+            historyChart.options.plugins.legend.labels.color = isDark ? 'white' : 'black';
+            historyChart.options.scales.y.grid.color = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)';
+            historyChart.options.scales.x.grid.color = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)';
+            historyChart.update();
+        }
+
+        function updateChart(predictions) {
+            const timestamp = new Date().toLocaleTimeString();
+            
+            emotionHistory.happy.push(predictions[0].probability * 100);
+            emotionHistory.angry.push(predictions[1].probability * 100);
+
+            // Keep last 20 readings
+            if (emotionHistory.happy.length > 20) {
+                emotionHistory.happy.shift();
+                emotionHistory.angry.shift();
+                historyChart.data.labels.shift();
+            }
+
+            historyChart.data.labels.push(timestamp);
+            historyChart.data.datasets[0].data = emotionHistory.happy;
+            historyChart.data.datasets[1].data = emotionHistory.angry;
+            historyChart.update();
+        }
+
+        function resetHistory() {
+            emotionHistory.happy = [];
+            emotionHistory.angry = [];
+            historyChart.data.labels = [];
+            historyChart.data.datasets[0].data = [];
+            historyChart.data.datasets[1].data = [];
+            historyChart.update();
+        }
+
+        async function init() {
+            const startButton = document.getElementById("start-button");
+            const loadingDiv = document.getElementById("loading");
+            const errorDiv = document.getElementById("error");
+            const screenshotButton = document.getElementById("screenshot-button");
+            const resetButton = document.getElementById("reset-button");
+
+            try {
+                startButton.disabled = true;
+                loadingDiv.style.display = "block";
+                errorDiv.style.display = "none";
+
+                model = await tmImage.load(URL + "model.json", URL + "metadata.json");
+                maxPredictions = model.getTotalClasses();
+
+                webcam = new tmImage.Webcam(400, 400, true);
+                await webcam.setup();
+                await webcam.play();
+                
+                document.getElementById("webcam-container").appendChild(webcam.canvas);
+
+                labelContainer = document.getElementById("label-container");
+                labelContainer.innerHTML = "";
+                
+                const emotions = ["Happy", "Angry"];
+                emotions.forEach((emotion, index) => {
+                    const div = document.createElement("div");
+                    div.className = "prediction-bar";
+                    div.innerHTML = `<div class="prediction-fill ${emotion.toLowerCase()}-fill" style="width: 0%"></div>`;
+                    labelContainer.appendChild(div);
+                });
+
+                startButton.textContent = "Camera Active";
+                loadingDiv.style.display = "none";
+                screenshotButton.disabled = false;
+                resetButton.disabled = false;
+
+                initChart();
+                window.requestAnimationFrame(loop);
+            } catch (error) {
+                errorDiv.textContent = "Error: " + error.message;
+                errorDiv.style.display = "block";
+                startButton.disabled = false;
+                loadingDiv.style.display = "none";
+            }
+        }
+
+        async function loop() {
+            webcam.update();
+            await predict();
+            window.requestAnimationFrame(loop);
+        }
+
+        async function predict() {
+            try {
+                const prediction = await model.predict(webcam.canvas);
+                
+                // Update prediction bars
+                prediction.forEach((pred, index) => {
+                    const probability = pred.probability.toFixed(2);
+                    const percentage = (probability * 100).toFixed(0);
+                    const predictionFill = labelContainer.children[index].firstElementChild;
+                    
+                    predictionFill.style.width = percentage + "%";
+                    predictionFill.textContent = `${pred.className}: ${percentage}%`;
+                });
+
+                // Update chart
+                updateChart(prediction);
+
+                // Update dominant emotion
+                const dominantPrediction = prediction.reduce((prev, current) => 
+                    (prev.probability > current.probability) ? prev : current
+                );
+                const dominantElement = document.getElementById('dominant-emotion');
+                dominantElement.textContent = `Dominant Emotion: ${dominantPrediction.className}`;
+                dominantElement.style.backgroundColor = 
+                    dominantPrediction.className.toLowerCase() === 'happy' 
+                        ? '#22c55e20' 
+                        : '#ef444420';
+
+            } catch (error) {
+                console.error("Prediction error:", error);
+            }
+        }
+
+        function takeScreenshot() {
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            const video = webcam.canvas;
+            
+            canvas.width = video.width;
+            canvas.height = video.height;
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            const preview = document.getElementById('screenshot-preview');
+            const image = document.getElementById('screenshot-image');
+            image.src = canvas.toDataURL('image/png');
+            preview.style.display = 'block';
+        }
+
+        function closeScreenshotPreview() {
+            document.getElementById('screenshot-preview').style.display = 'none';
+        }
+
+        function downloadScreenshot() {
+            const link = document.createElement('a');
+            link.download = 'emotion-detection.png';
+            link.href = document.getElementById('screenshot-image').src;
+            link.click();
+        }
+    </script>
+</body>
+</html>
